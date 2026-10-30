@@ -1,0 +1,14 @@
+{
+  "name": "Settle",
+  "short_name": "Settle",
+  "description": "Binaural beats and nature sounds for sleep and calm.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#181614",
+  "theme_color": "#181614",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

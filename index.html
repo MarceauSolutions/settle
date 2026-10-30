@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Settle</title>
+<meta name="description" content="Binaural beats and nature sounds for sleep and calm.">
+<meta name="theme-color" content="#181614">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Settle">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+  :root {
+    --bg: #181614; --card: #24211e; --card-on: #332c21; --line: #3b362f;
+    --text: #efe8dc; --muted: #a79d8e; --gold: #c9963c;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100dvh; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 24px);
+  }
+  main { max-width: 460px; margin: 0 auto; display: grid; gap: 22px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: .02em; text-align: center; }
+
+  .stage { display: grid; place-items: center; height: 250px; position: relative; }
+  .orb {
+    grid-area: 1 / 1; width: 200px; height: 200px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(201,150,60,.5), rgba(201,150,60,.08) 70%);
+    transform: scale(.6); opacity: .55; pointer-events: none;
+  }
+  .play {
+    grid-area: 1 / 1; position: relative; width: 84px; height: 84px; border-radius: 50%; border: 0;
+    background: var(--gold); color: #181614; cursor: pointer; display: grid; place-items: center;
+  }
+  .play:focus-visible, .session:focus-visible, .timer button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .play svg { width: 34px; height: 34px; fill: currentColor; }
+  .cue { min-height: 44px; text-align: center; }
+  .cue strong { display: block; font-weight: 600; }
+  .cue span { color: var(--muted); font-size: 14px; }
+
+  .sessions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .session {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text);
+    font: inherit; text-align: left; padding: 12px; min-height: 74px; cursor: pointer;
+  }
+  .session[aria-pressed="true"] { background: var(--card-on); border-color: var(--gold); }
+  .session b { display: block; font-weight: 600; }
+  .session small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  .label { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .timer { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .timer button {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text);
+    font: inherit; font-size: 14px; min-height: 44px; padding: 0 2px; cursor: pointer;
+  }
+  .timer button[aria-pressed="true"] { background: var(--card-on); border-color: var(--gold); }
+
+  footer { color: var(--muted); font-size: 13px; }
+  footer p { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Settle</h1>
+
+  <div class="stage">
+    <div class="orb" id="orb"></div>
+    <button class="play" id="play" aria-label="Play"></button>
+  </div>
+  <div class="cue" aria-live="polite">
+    <strong id="cue">Tap play, then breathe with the circle</strong>
+    <span id="status"></span>
+  </div>
+
+  <div class="sessions" id="sessions"></div>
+
+  <section>
+    <p class="label">Sleep timer</p>
+    <div class="timer" id="timer"></div>
+  </section>
+
+  <footer>
+    <p>Binaural sessions need headphones, since each ear gets a slightly different tone. Rain and Ocean work on speakers.</p>
+    <p>Keep the volume low. Don't use while driving.</p>
+  </footer>
+</main>
+<audio id="audio" loop preload="none" playsinline></audio>
+
+<script>
+  // Matches tools/render_audio.py
+  const TAIL = 60, BREATH_SECONDS = 10.9, INHALE_SHARE = 0.41;
+  const SESSIONS = [
+    { id: 'deep-sleep', name: 'Deep Sleep', note: '2 Hz · brown noise', phones: true },
+    { id: 'drift-off', name: 'Drift Off', note: '4 Hz · rain', phones: true },
+    { id: 'exhale', name: 'Exhale', note: '6 Hz · ocean', phones: true },
+    { id: 'unwind', name: 'Unwind', note: '10 Hz · wind', phones: true },
+    { id: 'rain', name: 'Rain', note: 'No tones' },
+    { id: 'ocean', name: 'Ocean', note: 'No tones' },
+  ];
+  const TIMERS = [[15, '15m'], [30, '30m'], [60, '1h'], [90, '90m'], [0, 'Off']];
+  const PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>';
+  const PAUSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>';
+
+  const $ = id => document.getElementById(id);
+  const audio = $('audio');
+  const stillOrb = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const remembered = key => { try { return localStorage.getItem(key); } catch { return null; } };
+  const remember = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
+
+  let session = SESSIONS.find(s => s.id === remembered('session')) || SESSIONS[0];
+  let timerMinutes = TIMERS.some(([m]) => String(m) === remembered('timer')) ? Number(remembered('timer')) : 60;
+  let endsAt = null;
+  let remainingMs = null;
+  let winding = false;
+
+  const urlFor = s => new URL(`audio/${s.id}.m4a`, location.href).href;
+
+  function renderChoices() {
+    $('sessions').replaceChildren(...SESSIONS.map(s => {
+      const button = document.createElement('button');
+      button.className = 'session';
+      button.setAttribute('aria-pressed', s === session);
+      button.innerHTML = `<b>${s.name}</b><small>${s.note}</small>`;
+      button.onclick = () => choose(s);
+      return button;
+    }));
+    $('timer').replaceChildren(...TIMERS.map(([minutes, label]) => {
+      const button = document.createElement('button');
+      button.textContent = label;
+      button.setAttribute('aria-pressed', minutes === timerMinutes);
+      button.setAttribute('aria-label', minutes ? `${minutes} minutes` : 'Timer off');
+      button.onclick = () => setTimer(minutes);
+      return button;
+    }));
+  }
+
+  function choose(s) {
+    const wasPlaying = !audio.paused;
+    session = s;
+    remember('session', s.id);
+    renderChoices();
+    audio.loop = true;
+    winding = false;
+    audio.src = urlFor(s);
+    audio.load();
+    updateMedia();
+    if (wasPlaying) play();
+  }
+
+  function setTimer(minutes) {
+    timerMinutes = minutes;
+    remember('timer', minutes);
+    renderChoices();
+    if (!audio.paused) armTimer(minutes ? minutes * 60000 : null);
+    else remainingMs = null;
+    showStatus();
+  }
+
+  function armTimer(ms) {
+    endsAt = ms === null ? null : Date.now() + ms;
+    audio.loop = true;
+    winding = false;
+  }
+
+  async function play() {
+    if (!audio.getAttribute('src') || audio.error) {
+      audio.src = urlFor(session);
+      audio.load();
+    }
+    const startingFresh = audio.ended || audio.currentTime === 0 || remainingMs === null;
+    if (audio.ended) audio.currentTime = 0;
+    armTimer(startingFresh ? (timerMinutes ? timerMinutes * 60000 : null) : remainingMs);
+    remainingMs = null;
+    $('status').textContent = 'Loading…';
+    try {
+      await audio.play();
+    } catch {
+      $('status').textContent = "Couldn't start. Tap play again.";
+    }
+  }
+
+  function pause() {
+    remainingMs = endsAt ? Math.max(endsAt - Date.now(), 0) : null;
+    endsAt = null;
+    audio.pause();
+  }
+
+  // iOS ignores audio.volume from script, so the fade lives in each file's last minute.
+  function checkTimer() {
+    if (!endsAt || winding || Date.now() < endsAt || !audio.duration) return;
+    winding = true;
+    audio.loop = false;
+    audio.currentTime = Math.max(audio.duration - TAIL, 0);
+  }
+
+  function showStatus() {
+    const status = $('status');
+    if (audio.paused) { status.textContent = ''; return; }
+    if (winding) { status.textContent = 'Fading out'; return; }
+    if (!endsAt) { status.textContent = `${session.name} · loops until you stop it`; return; }
+    const minutes = Math.max(Math.ceil((endsAt - Date.now()) / 60000), 1);
+    status.textContent = `${session.name} · ${minutes} min left`;
+  }
+
+  function updateButton() {
+    const playing = !audio.paused;
+    $('play').innerHTML = playing ? PAUSE : PLAY;
+    $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+    showStatus();
+    if (!playing) {
+      $('cue').textContent = 'Tap play, then breathe with the circle';
+      $('orb').style.transform = 'scale(.6)';
+      $('orb').style.opacity = .55;
+    }
+  }
+
+  function updateMedia() {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: session.name, artist: 'Settle',
+      artwork: [{ src: new URL('icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' }],
+    });
+  }
+
+  // Follows the audio clock so the circle stays in step with the Ocean swell.
+  function drawOrb() {
+    requestAnimationFrame(drawOrb);
+    if (audio.paused || stillOrb) return;
+    const phase = (audio.currentTime / BREATH_SECONDS) % 1;
+    const inhaling = phase < INHALE_SHARE;
+    const swell = inhaling
+      ? Math.sin(Math.PI / 2 * phase / INHALE_SHARE) ** 2
+      : Math.cos(Math.PI / 2 * (phase - INHALE_SHARE) / (1 - INHALE_SHARE)) ** 2;
+    $('orb').style.transform = `scale(${0.6 + 0.65 * swell})`;
+    $('orb').style.opacity = 0.55 + 0.45 * swell;
+    $('cue').textContent = inhaling ? 'Breathe in' : 'Breathe out';
+  }
+
+  $('play').onclick = () => audio.paused ? play() : pause();
+  audio.addEventListener('play', updateButton);
+  audio.addEventListener('playing', updateButton);
+  audio.addEventListener('pause', updateButton);
+  audio.addEventListener('timeupdate', checkTimer);
+  audio.addEventListener('ended', () => {
+    endsAt = null; remainingMs = null; winding = false; audio.loop = true; audio.currentTime = 0;
+    updateButton();
+  });
+  audio.addEventListener('error', () => { $('status').textContent = "Couldn't load audio. Check your connection."; });
+
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.setActionHandler('play', play);
+    navigator.mediaSession.setActionHandler('pause', pause);
+  }
+
+  setInterval(() => { checkTimer(); if (!audio.paused) showStatus(); }, 1000);
+  renderChoices();
+  updateButton();
+  updateMedia();
+  drawOrb();
+</script>
+</body>
+</html>
